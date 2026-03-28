@@ -123,20 +123,39 @@ class DialecticalRelation:
         decay: float = 0.995,
     ) -> None:
         """
-        贝叶斯风格权重更新 + 时间衰减
+        贝叶斯风格权重更新 + 时间衰减 + 收敛机制 (v0.3优化)
 
-        observed_positive=True  → 正向证据（联系促进了结果）
-        observed_positive=False → 负向证据（联系阻碍/矛盾了结果）
+        改进：
+        - 如果连续同一方向证据，加速收敛
+        - 如果矛盾强度高，减缓更新（保留张力）
+        - 新边有"学习缓冲期"
         """
+        # v0.3: 新边有学习缓冲期
+        if self.update_count < 3:
+            decay = 0.998  # 更慢衰减
+            learning_rate = 0.05  # 更小学习率
+
         # 时间衰减
         self.w_pos *= decay
         self.w_neg *= decay
 
+        # 计算当前矛盾强度
+        current_contradiction = self.contradiction_intensity
+
+        # v0.3: 如果矛盾强度很高，减缓更新（保留辩证张力）
+        if current_contradiction > 0.8:
+            learning_rate *= 0.3
+        elif current_contradiction > 0.6:
+            learning_rate *= 0.6
+
         # 贝叶斯更新
         if observed_positive:
             self.w_pos = _clamp(self.w_pos + learning_rate * (1 - self.w_pos))
+            # v0.3: 负向也轻微增强，但比正向少
+            self.w_neg = _clamp(self.w_neg + learning_rate * 0.3 * (1 - self.w_neg))
         else:
             self.w_neg = _clamp(self.w_neg + learning_rate * (1 - self.w_neg))
+            self.w_pos = _clamp(self.w_pos + learning_rate * 0.3 * (1 - self.w_pos))
 
         self.last_updated = time.time()
         self.update_count += 1

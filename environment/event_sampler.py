@@ -10,12 +10,12 @@ from dataclasses import dataclass
 
 @dataclass
 class SamplerConfig:
-    """采样器配置"""
+    """采样器配置 v0.3 调优"""
     strategy: str = "curiosity"  # "curiosity" | "random" | "sequential" | "entropy"
-    temperature: float = 1.0      # 温度参数（用于概率采样）
-    surprise_weight: float = 0.4  # 意外度权重
-    recency_weight: float = 0.3   # 近因效应权重
-    diversity_weight: float = 0.3 # 多样性权重
+    temperature: float = 0.8      # 温度参数（v0.3降低，使分布更尖锐）
+    surprise_weight: float = 0.35  # 意外度权重（v0.3微调）
+    recency_weight: float = 0.45   # 近因效应权重（v0.3提高，优先新事件）
+    diversity_weight: float = 0.2 # 多样性权重（v0.3降低，减少随机性）
 
 
 class EventSampler:

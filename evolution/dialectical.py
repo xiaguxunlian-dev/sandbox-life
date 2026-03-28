@@ -33,10 +33,11 @@ if TYPE_CHECKING:
     from core.drive import DriveVector
     from constraints.transparency import TransparencyLog
 
-# 质变触发阈值
-LEAP_THRESHOLD = 0.92           # 矛盾强度 > 此值触发质变（初始随机权重约0.5，强度约1.0，需要更高阈值）
-MERGE_SIMILARITY_THRESHOLD = 0.9  # 相似度 > 此值触发合并
-DEATH_AGE_THRESHOLD = 300.0     # 孤立超过此时间（秒）触发消亡
+# 质变触发阈值 v0.3 调优
+LEAP_THRESHOLD = 0.98           # 矛盾强度 > 此值触发质变（v0.3调高，减少频繁质变）
+MERGE_SIMILARITY_THRESHOLD = 0.92  # 相似度 > 此值触发合并（v0.3调高，减少合并）
+DEATH_AGE_THRESHOLD = 50.0      # 孤立超过此步数触发消亡（v0.3调低，加快遗忘）
+FORGETTING_RATE = 0.005         # v0.3新增：遗忘速率
 STAGNATION_METAMORPHOSIS_RATIO = 0.3  # 停滞蜕变保留比例
 
 
@@ -271,9 +272,12 @@ class DialecticalEvolution:
 
     def _apply_forgetting(self) -> None:
         """
-        自然遗忘：基于激活时间 + 联系中心性
+        自然遗忘 v0.3：基于激活时间 + 联系中心性 + 结构位置
 
-        P_survive = exp(-α * age) * (1 + centrality)
+        改进：
+        - 使用FORGETTING_RATE参数
+        - 优先遗忘孤立、低连接度、存活过久的节点
+        - 高中心性节点有"豁免权"
         """
         # 简化的中心性（度数）
         degree: dict[str, int] = {}
@@ -282,12 +286,32 @@ class DialecticalEvolution:
             degree[rel.target_id] = degree.get(rel.target_id, 0) + 1
 
         max_degree = max(degree.values(), default=1)
+        
+        # 计算系统平均度数
+        avg_degree = sum(degree.values()) / max(len(degree), 1)
+        
         to_remove: list[str] = []
+        step = self._step_count
 
         for entity in self.entities:
-            centrality = degree.get(entity.id, 0) / max_degree
-            p_survive = entity.survival_probability(centrality=centrality)
-            if random.random() > p_survive:
+            d = degree.get(entity.id, 0)
+            
+            # v0.3: 高中心性节点豁免（超过平均2倍）
+            if d > avg_degree * 2:
+                continue
+                
+            centrality = d / max_degree
+            
+            # v0.3: 调整遗忘概率计算
+            # 基础遗忘率 + 年龄因子 + 低连接度惩罚
+            base_forget = FORGETTING_RATE
+            age_factor = min(step / 200.0, 1.0)  # 存活越久遗忘概率越高
+            isolation_penalty = 0.0 if d > 0 else 0.02  # 孤立节点额外惩罚
+            
+            forget_prob = base_forget + age_factor * 0.01 + isolation_penalty
+            forget_prob *= (1 - centrality * 0.5)  # 高连接度降低遗忘
+            
+            if random.random() < forget_prob:
                 from core.entity import EntityState
                 entity.state = EntityState.DYING
                 to_remove.append(entity.id)
@@ -295,9 +319,10 @@ class DialecticalEvolution:
         # 移除消亡实体（只移除 DYING 状态 + 无重要联系的）
         for eid in to_remove:
             rels = self.graph.get_relations(eid)
-            if not rels or all(r.relation_strength < 0.2 for r in rels):
+            # v0.3: 稍微提高移除阈值
+            if not rels or all(r.relation_strength < 0.3 for r in rels):
                 self.entities = [e for e in self.entities if e.id != eid]
-                self.log.log("node_death", {"entity_id": eid, "reason": "forgetting"})
+                self.log.log("node_death", {"entity_id": eid, "reason": "forgetting", "step": step})
 
     # ── 质变检测 ──────────────────────────────────────────────
 
