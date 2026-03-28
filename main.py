@@ -29,6 +29,7 @@ from constraints.transparency import TransparencyLog
 from constraints.isolation import SandboxIsolation
 from evolution.dialectical import DialecticalEvolution
 from environment import load_sample_shiji, Desemantifier, EventSampler, SamplerConfig
+from environment.dialectics_parser import load_dialectics_sample, DialecticsParser
 
 try:
     from rich.console import Console
@@ -106,6 +107,33 @@ def load_history_events(config=None) -> tuple:
     return events, sampler, desemantifier
 
 
+def load_dialectics_events() -> tuple:
+    """
+    加载辩证法概念流
+    
+    Returns:
+        (concepts, parser)
+    """
+    print("\n[辩证法模块] 加载辩证法概念...")
+    
+    # 加载辩证法样本
+    concepts = load_dialectics_sample()
+    print(f"  解析概念数: {len(concepts)}")
+    
+    # 统计
+    parser = DialecticsParser()
+    parser.parse_text("""
+        矛盾是事物发展的根本动力。对立统一是辩证法的核心。
+        量变引起质变。否定之否定推动事物螺旋上升。
+        物质决定意识，实践决定认识。
+        """, source="main")
+    stats = parser.get_statistics()
+    for ctype, count in stats["by_type"].items():
+        print(f"    {ctype}: {count}")
+    
+    return concepts, parser
+
+
 def run_sandbox(
     steps: int = 200,
     sleep_interval: float = 0.05,
@@ -141,51 +169,72 @@ def run_sandbox(
     # 加载历史书事件
     history_events, sampler, desemantifier = load_history_events()
     available_events = list(history_events)  # 剩余可用事件
-
+    
+    # 加载辩证法概念
+    dialectics_concepts, _ = load_dialectics_events()
+    available_concepts = list(dialectics_concepts)  # 剩余可用概念
+    
+    # 计算阶段分割点（v0.4: 60%历史书，40%辩证法）
+    history_phase_end = int(steps * 0.6)
+    
     log.log("sandbox_init", {
-        "version": "0.2.0",
+        "version": "0.4.0",
         "seed": seed,
         "initial_entities": len(entities),
         "initial_relations": len(graph.all_relations()),
         "history_events_total": len(history_events),
+        "dialectics_concepts_total": len(dialectics_concepts),
+        "history_phase_end": history_phase_end,
     })
 
     print(f"  初始事物数: {len(entities)}")
     print(f"  初始联系数: {len(graph.all_relations())}")
     print(f"  历史事件数: {len(history_events)}")
+    print(f"  辩证法概念数: {len(dialectics_concepts)}")
+    print(f"  阶段分割点: 步{history_phase_end} (历史书→辩证法)")
     print(f"  透明日志: {log.log_path}")
     print(f"  开始运行 {steps} 步...\n")
 
     # ── 主循环 ────────────────────────────────────────────────
     prev_entropy = consequence.compute_system_entropy(entities, graph)
     events_fed = 0
+    concepts_fed = 0
 
     for step_idx in range(1, steps + 1):
         # 随机激活部分实体
         n_activate = random.randint(1, max(1, len(entities) // 3))
         activated = [e.id for e in random.sample(entities, min(n_activate, len(entities)))]
 
-        # 喂入历史事件（每5步喂入一个）
+        # 喂入输入（分阶段：历史书 → 辩证法）
         topology_input = None
-        if step_idx % 5 == 0 and available_events:
-            # 采样下一个事件
-            result = sampler.select(available_events, entity_state=None)
-            if result:
-                idx, selected_event = result
-                
-                # 去语义化
-                topology_input = desemantifier.transform_event(selected_event)
-                
-                # 从可用列表移除（不重复喂入）
-                available_events.pop(idx)
-                events_fed += 1
-                
-                print(f"  [史] {selected_event.id}: {selected_event.entities[:3]}")
+        dialectics_input = None
+        
+        # 阶段1：历史书（步1 → history_phase_end）
+        if step_idx <= history_phase_end and available_events:
+            if step_idx % 5 == 0:
+                result = sampler.select(available_events, entity_state=None)
+                if result:
+                    idx, selected_event = result
+                    topology_input = desemantifier.transform_event(selected_event)
+                    available_events.pop(idx)
+                    events_fed += 1
+                    print(f"  [史] {selected_event.id}: {selected_event.entities[:2]}")
+        
+        # 阶段2：辩证法（history_phase_end+1 → steps）
+        elif step_idx > history_phase_end and available_concepts:
+            if step_idx % 8 == 0:  # 辩证法喂入间隔稍长
+                # 随机选择一个概念
+                if available_concepts:
+                    idx = random.randint(0, len(available_concepts) - 1)
+                    dialectics_input = available_concepts.pop(idx)
+                    concepts_fed += 1
+                    print(f"  [辩] {dialectics_input.name}: {dialectics_input.topology_action}")
 
         # 执行进化步
         step_record = engine.step(
             activated_entities=activated, 
-            topology_input=topology_input
+            topology_input=topology_input,
+            dialectics_input=dialectics_input,
         )
 
         # 更新实体引用（进化可能增减实体）
@@ -205,7 +254,7 @@ def run_sandbox(
 
         # 每10步输出状态
         if step_idx % 10 == 0 or step_record.event.value != "quantitative_update":
-            _print_status(step_idx, steps, entities, graph, consequence, d1, d2, d3, step_record, events_fed, len(available_events))
+            _print_status(step_idx, steps, entities, graph, consequence, d1, d2, d3, step_record, events_fed, len(available_events), concepts_fed, len(available_concepts), history_phase_end)
 
         time.sleep(sleep_interval)
 
@@ -214,11 +263,12 @@ def run_sandbox(
     log.close()
 
     print("\n" + "=" * 60)
-    print("  沙盒运行完毕")
+    print("  沙盒运行完毕 (v0.4 - 历史书+辩证法)")
     print(f"  总进化步数: {engine._step_count}")
     print(f"  最终事物数: {len(entities)}")
     print(f"  最终联系数: {len(graph.all_relations())}")
-    print(f"  喂入事件数: {events_fed}/{len(history_events)}")
+    print(f"  喂入历史事件: {events_fed}/{len(history_events)}")
+    print(f"  喂入辩证概念: {concepts_fed}/{len(dialectics_concepts)}")
     print(f"  日志记录数: {log.sequence}")
     print(f"  日志文件: {log.log_path}")
     print("=" * 60)
@@ -226,11 +276,15 @@ def run_sandbox(
     return engine, entities, graph, consequence
 
 
-def _print_status(step, total, entities, graph, consequence, d1, d2, d3, step_record, events_fed, events_left):
+def _print_status(step, total, entities, graph, consequence, d1, d2, d3, step_record, events_fed, events_left, concepts_fed=0, concepts_left=0, history_phase_end=0):
     """打印当前状态（简洁文本版）"""
     event = step_record.event.value
     marker = "**" if event != "quantitative_update" else "  "
     graph_stats = graph.stats()
+    
+    # 阶段指示
+    phase = "史" if step <= history_phase_end else "辩"
+    
     print(
         f"[{step:4d}/{total}]{marker} "
         f"E:{len(entities):3d} "
@@ -239,7 +293,7 @@ def _print_status(step, total, entities, graph, consequence, d1, d2, d3, step_re
         f"H:{consequence.last_entropy:.3f} "
         f"F:{consequence.last_free_energy:.3f} "
         f"驱:({d1:.2f},{d2:.2f},{d3:.2f}) "
-        f"史:{events_fed}/{events_left}"
+        f"{phase}:{events_fed}/{events_left}+{concepts_fed}/{concepts_left}"
     )
 
 

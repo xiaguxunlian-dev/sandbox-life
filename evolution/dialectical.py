@@ -110,6 +110,7 @@ class DialecticalEvolution:
         self, 
         activated_entities: list[str] | None = None,
         topology_input: object = None,
+        dialectics_input: object = None,
     ) -> EvolutionStep:
         """
         执行一步进化
@@ -117,6 +118,7 @@ class DialecticalEvolution:
         Args:
             activated_entities: 本步被激活的事物ID列表
             topology_input: 来自历史书的拓扑变量（可选）
+            dialectics_input: 来自辩证法概念的输入（可选）
         """
         self._step_count += 1
         fe_before = self.consequence.last_free_energy
@@ -124,6 +126,10 @@ class DialecticalEvolution:
         # 0. 如果有历史事件输入，施加拓扑影响
         if topology_input:
             self._apply_topology_input(topology_input)
+        
+        # 0b. 如果有辩证法概念输入，施加辩证影响
+        if dialectics_input:
+            self._apply_dialectics_input(dialectics_input)
 
         # 1. 量变：更新权重
         self._quantitative_step(activated_entities or [])
@@ -267,6 +273,129 @@ class DialecticalEvolution:
                         w_neg=0.5 - weight_delta * 0.3,
                         causal_strength=weight_delta,
                     )
+
+    # ── 辩证法概念输入 ────────────────────────────────────────
+
+    def _apply_dialectics_input(self, concept) -> None:
+        """
+        应用辩证法概念带来的拓扑影响
+        
+        辩证法概念不直接添加节点，而是调整系统参数和激活特定进化机制：
+        - 对立统一 → 增强矛盾关系
+        - 量变质变 → 降低质变阈值
+        - 否定之否定 → 激活综合机制
+        """
+        action = concept.topology_action if hasattr(concept, 'topology_action') else None
+        strength = concept.activation_strength if hasattr(concept, 'activation_strength') else 0.5
+        
+        if not action:
+            return
+        
+        # 记录当前质变阈值（用于恢复）
+        global LEAP_THRESHOLD
+        original_threshold = LEAP_THRESHOLD
+        
+        try:
+            if action == "contradiction_boost" or action == "contradiction_intensify":
+                # 增强矛盾关系：随机选择一些联系，增强其双极性
+                relations = self.graph.all_relations()
+                if relations:
+                    n_boost = min(int(len(relations) * strength * 0.3), 3)
+                    for _ in range(n_boost):
+                        rel = random.choice(relations)
+                        # 随机增强正或负极
+                        if random.random() > 0.5:
+                            rel.w_pos = min(rel.w_pos + strength * 0.2, 0.95)
+                        else:
+                            rel.w_neg = min(rel.w_neg + strength * 0.2, 0.95)
+                    self.log.log("dialectics_contradiction", {
+                        "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                        "boosted": n_boost,
+                    })
+                    
+            elif action == "qualitative_leap":
+                # 降低质变阈值，触发更多质变
+                LEAP_THRESHOLD = max(0.90, LEAP_THRESHOLD - strength * 0.05)
+                self.log.log("dialectics_leap", {
+                    "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                    "threshold_reduced_to": LEAP_THRESHOLD,
+                })
+                
+            elif action == "quantitative_accumulation":
+                # 增强量变积累：对所有联系进行贝叶斯更新
+                relations = self.graph.all_relations()
+                for rel in relations:
+                    rel.bayesian_update(
+                        positive_evidence=random.random() > 0.5,
+                        learning_rate=strength * 0.1,
+                    )
+                self.log.log("dialectics_accumulation", {
+                    "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                    "updated": len(relations),
+                })
+                
+            elif action == "negation":
+                # 触发否定操作：反转部分主导极
+                relations = self.graph.all_relations()
+                n_negate = min(int(len(relations) * strength * 0.2), 2)
+                for _ in range(n_negate):
+                    rel = random.choice(relations)
+                    if rel.negation_state.value == "thesis":
+                        rel.negate()
+                self.log.log("dialectics_negation", {
+                    "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                    "negated": n_negate,
+                })
+                
+            elif action == "synthesis" or action == "spiral_evolution":
+                # 激活综合：随机合并两个相似节点
+                # 这里简化为增强高矛盾关系的稳定性
+                relations = self.graph.all_relations()
+                high_contradiction = [r for r in relations if r.contradiction_intensity > 0.7]
+                if high_contradiction:
+                    for rel in high_contradiction[:2]:
+                        # 综合：使两极趋于平衡
+                        avg = (rel.w_pos + rel.w_neg) / 2
+                        rel.w_pos = avg * 0.9 + rel.w_pos * 0.1
+                        rel.w_neg = avg * 0.9 + rel.w_neg * 0.1
+                self.log.log("dialectics_synthesis", {
+                    "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                })
+                
+            elif action == "development_promote":
+                # 发展促进：增强熵变，活跃系统
+                self.log.log("dialectics_development", {
+                    "concept": concept.name if hasattr(concept, 'name') else "unknown",
+                })
+                
+            elif action == "relation_enhance":
+                # 联系增强：创建新联系
+                if len(self.entities) >= 2:
+                    ids = [e.id for e in self.entities]
+                    new_rels = 0
+                    for _ in range(int(strength * 3)):
+                        src, tgt = random.sample(ids, 2)
+                        # 检查是否已存在
+                        exists = any(
+                            r.source_id == src and r.target_id == tgt 
+                            for r in self.graph.all_relations()
+                        )
+                        if not exists:
+                            self.graph.add_relation(
+                                src, tgt,
+                                w_pos=0.6,
+                                w_neg=0.4,
+                                causal_strength=strength * 0.5,
+                            )
+                            new_rels += 1
+                    if new_rels > 0:
+                        self.log.log("dialectics_relation", {
+                            "new_relations": new_rels,
+                        })
+                        
+        finally:
+            # 恢复原始阈值（辩证法效果不持久）
+            LEAP_THRESHOLD = original_threshold
 
     # ── 自然遗忘 ──────────────────────────────────────────────
 
