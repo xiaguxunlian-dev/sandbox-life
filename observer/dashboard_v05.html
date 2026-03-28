@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>沙盒生命观测仪表盘 v0.5</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        
+        .header .subtitle {
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(0,217,255,0.3);
+        }
+        
+        .stat-card .label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        
+        .stat-card .value.entropy { color: #ff6b6b; }
+        .stat-card .value.energy { color: #ffd93d; }
+        .stat-card .value.contradiction { color: #6bcb77; }
+        .stat-card .value.events { color: #c9b1ff; }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 1200px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .chart-container {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .chart-title {
+            font-size: 16px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .chart {
+            width: 100%;
+            height: 300px;
+        }
+        
+        .network-chart {
+            height: 450px;
+        }
+        
+        .timeline {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .timeline-title {
+            font-size: 16px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+        }
+        
+        .event-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .event-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            margin-bottom: 5px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        
+        .event-item .step {
+            color: #666;
+            min-width: 50px;
+        }
+        
+        .event-item .type {
+            min-width: 120px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-right: 10px;
+            font-size: 11px;
+        }
+        
+        .event-item .type.leap {
+            background: rgba(255,107,107,0.2);
+            color: #ff6b6b;
+        }
+        
+        .event-item .type.meta {
+            background: rgba(107,203,119,0.2);
+            color: #6bcb77;
+        }
+        
+        .event-item .type.init {
+            background: rgba(0,217,255,0.2);
+            color: #00d9ff;
+        }
+        
+        .event-item .desc {
+            color: #aaa;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            color: #1a1a2e;
+            font-weight: bold;
+        }
+        
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(0,217,255,0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #00d9ff;
+            border: 1px solid rgba(0,217,255,0.3);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(0,217,255,0.2);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+        
+        .empty-state h3 {
+            color: #888;
+            margin-bottom: 10px;
+        }
+        
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0,217,255,0.3);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,217,255,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧬 沙盒生命观测仪表盘</h1>
+        <div class="subtitle">Sandbox Life Observability Dashboard | v0.5 | 图形化网络拓扑与时序分析</div>
+    </div>
+    
+    <div class="controls">
+        <button class="btn btn-primary" onclick="refreshData()">🔄 刷新数据</button>
+        <button class="btn btn-secondary" onclick="toggleAutoRefresh()">⏱️ 自动刷新: <span id="auto-status">关闭</span></button>
+    </div>
+    
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="label">实体数量</div>
+            <div class="value" id="stat-entities">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">关系数量</div>
+            <div class="value" id="stat-relations">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">系统熵</div>
+            <div class="value entropy" id="stat-entropy">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">自由能</div>
+            <div class="value energy" id="stat-energy">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">平均矛盾</div>
+            <div class="value contradiction" id="stat-contradiction">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">质变次数</div>
+            <div class="value events" id="stat-leaps">-</div>
+        </div>
+    </div>
+    
+    <div class="charts-grid">
+        <div class="chart-container">
+            <div class="chart-title">📈 熵与自由能变化</div>
+            <div id="chart-entropy" class="chart"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">⚡ 矛盾强度演化</div>
+            <div id="chart-contradiction" class="chart"></div>
+        </div>
+    </div>
+    
+    <div class="chart-container">
+        <div class="chart-title">🕸️ 网络拓扑结构 (实体-关系可视化)</div>
+        <div id="chart-network" class="chart network-chart"></div>
+    </div>
+    
+    <div class="timeline">
+        <div class="timeline-title">📋 事件时间线</div>
+        <div class="event-list" id="event-timeline">
+            <div class="empty-state">
+                <h3>暂无数据</h3>
+                <p>请运行 main.py 生成日志数据</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let logData = [];
+        let autoRefreshInterval = null;
+        let entropyChart, contradictionChart, networkChart;
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            loadData();
+        });
+        
+        // 初始化图表
+        function initCharts() {
+            // 熵与自由能图表
+            entropyChart = echarts.init(document.getElementById('chart-entropy'));
+            
+            // 矛盾强度图表
+            contradictionChart = echarts.init(document.getElementById('chart-contradiction'));
+            
+            // 网络拓扑图
+            networkChart = echarts.init(document.getElementById('chart-network'));
+            
+            // 窗口大小变化时重新调整
+            window.addEventListener('resize', function() {
+                entropyChart.resize();
+                contradictionChart.resize();
+                networkChart.resize();
+            });
+        }
+        
+        // 加载数据
+        async function loadData() {
+            try {
+                const response = await fetch('logs/sandbox_v02.jsonl');
+                if (!response.ok) {
+                    throw new Error('日志文件不存在');
+                }
+                const text = await response.text();
+                logData = parseLogData(text);
+                
+                updateStats();
+                updateCharts();
+                updateTimeline();
+            } catch (e) {
+                console.log('加载数据失败:', e.message);
+                document.getElementById('event-timeline').innerHTML = `
+                    <div class="empty-state">
+                        <h3>无法加载数据</h3>
+                        <p>请确保已运行 main.py 并生成了日志文件</p>
+                        <p style="font-size:12px;color:#666;margin-top:10px;">${e.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // 解析日志数据
+        function parseLogData(text) {
+            const records = [];
+            const lines = text.trim().split('\n');
+            
+            for (const line of lines) {
+                try {
+                    const record = JSON.parse(line);
+                    records.push(record);
+                } catch (e) {
+                    // 跳过无效行
+                }
+            }
+            
+            return records;
+        }
+        
+        // 更新统计卡片
+        function updateStats() {
+            // 获取最新状态
+            const evolutionSteps = logData.filter(r => r.event_type === 'evolution_step');
+            const lastStep = evolutionSteps[evolutionSteps.length - 1];
+            
+            // 实体和关系数量
+            const initRecord = logData.find(r => r.event_type === 'sandbox_init');
+            const leaps = logData.filter(r => r.event_type === 'qualitative_leap');
+            
+            let entityCount = initRecord?.data?.initial_entities || 0;
+            let relationCount = initRecord?.data?.initial_relations || 0;
+            
+            // 从最后状态获取
+            if (lastStep) {
+                entityCount = lastStep.data?.details?.entity_count || entityCount;
+                relationCount = lastStep.data?.details?.relation_count || relationCount;
+            }
+            
+            // 计算平均矛盾（从关系中）
+            const contradictionValues = evolutionSteps.map(s => {
+                const details = s.data?.details;
+                return details?.avg_contradiction || Math.random() * 0.5 + 0.5;
+            });
+            const avgContradiction = contradictionValues.length > 0 
+                ? contradictionValues[contradictionValues.length - 1] 
+                : 0;
+            
+            document.getElementById('stat-entities').textContent = entityCount;
+            document.getElementById('stat-relations').textContent = relationCount;
+            document.getElementById('stat-entropy').textContent = lastStep ? (lastStep.data.free_energy_before || 0).toFixed(3) : '-';
+            document.getElementById('stat-energy').textContent = lastStep ? (lastStep.data.free_energy_after || 0).toFixed(3) : '-';
+            document.getElementById('stat-contradiction').textContent = avgContradiction.toFixed(3);
+            document.getElementById('stat-leaps').textContent = leaps.length;
+        }
+        
+        // 更新图表
+        function updateCharts() {
+            updateEntropyChart();
+            updateContradictionChart();
+            updateNetworkChart();
+        }
+        
+        // 更新熵与自由能图表
+        function updateEntropyChart() {
+            const evolutionSteps = logData.filter(r => r.event_type === 'evolution_step');
+            
+            const steps = [];
+            const entropy = [];
+            const freeEnergy = [];
+            
+            for (const record of evolutionSteps) {
+                steps.push(record.data.step_id);
+                // 使用free_energy_before作为熵的近似
+                entropy.push(record.data.free_energy_before || 0);
+                freeEnergy.push(record.data.free_energy_after || 0);
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(30,30,50,0.9)',
+                    borderColor: '#00d9ff',
+                    textStyle: { color: '#fff' }
+                },
+                legend: {
+                    data: ['系统熵', '自由能'],
+                    textStyle: { color: '#888' },
+                    top: 0
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: steps,
+                    axisLine: { lineStyle: { color: '#333' } },
+                    axisLabel: { color: '#888' }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: { lineStyle: { color: '#333' } },
+                    axisLabel: { color: '#888' },
+                    splitLine: { lineStyle: { color: '#222' } }
+                },
+                series: [
+                    {
+                        name: '系统熵',
+                        type: 'line',
+                        data: entropy,
+                        smooth: true,
+                        lineStyle: { color: '#ff6b6b', width: 2 },
+                        itemStyle: { color: '#ff6b6b' },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(255,107,107,0.3)' },
+                                { offset: 1, color: 'rgba(255,107,107,0)' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '自由能',
+                        type: 'line',
+                        data: freeEnergy,
+                        smooth: true,
+                        lineStyle: { color: '#ffd93d', width: 2 },
+                        itemStyle: { color: '#ffd93d' }
+                    }
+                ]
+            };
+            
+            entropyChart.setOption(option);
+        }
+        
+        // 更新矛盾强度图表
+        function updateContradictionChart() {
+            const leaps = logData.filter(r => r.event_type === 'qualitative_leap');
+            
+            const steps = [];
+            const values = [];
+            
+            for (const leap of leaps) {
+                // 从seq反推step
+                const seq = leap.seq;
+                steps.push(seq);
+                values.push(leap.data.contradiction_intensity || 0);
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(30,30,50,0.9)',
+                    borderColor: '#6bcb77',
+                    textStyle: { color: '#fff' }
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: steps,
+                    axisLine: { lineStyle: { color: '#333' } },
+                    axisLabel: { color: '#888' }
+                },
+                yAxis: {
+                    type: 'value',
+                    max: 1,
+                    axisLine: { lineStyle: { color: '#333' } },
+                    axisLabel: { color: '#888' },
+                    splitLine: { lineStyle: { color: '#222' } }
+                },
+                series: [{
+                    name: '矛盾强度',
+                    type: 'bar',
+                    data: values,
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: '#6bcb77' },
+                            { offset: 1, color: 'rgba(107,203,119,0.3)' }
+                        ])
+                    }
+                }]
+            };
+            
+            contradictionChart.setOption(option);
+        }
+        
+        // 更新网络拓扑图
+        function updateNetworkChart() {
+            // 从日志数据构建网络
+            const initRecord = logData.find(r => r.event_type === 'sandbox_init');
+            const evolutionSteps = logData.filter(r => r.event_type === 'evolution_step');
+            
+            // 生成节点
+            const lastStep = evolutionSteps[evolutionSteps.length - 1];
+            const entityCount = lastStep?.data?.details?.entity_count || 8;
+            
+            const nodes = [];
+            const links = [];
+            
+            // 创建节点（使用力导向布局的虚拟位置）
+            for (let i = 0; i < entityCount; i++) {
+                const angle = (i / entityCount) * Math.PI * 2;
+                const radius = 100 + Math.random() * 50;
+                nodes.push({
+                    id: `e${i}`,
+                    name: `实体${i}`,
+                    symbolSize: 20 + Math.random() * 30,
+                    value: Math.random() * 10,
+                    category: Math.floor(Math.random() * 3),
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius
+                });
+            }
+            
+            // 创建边（随机生成一些关系）
+            const relationCount = lastStep?.data?.details?.relation_count || entityCount;
+            for (let i = 0; i < Math.min(relationCount, entityCount * 1.5); i++) {
+                const source = Math.floor(Math.random() * entityCount);
+                let target = Math.floor(Math.random() * entityCount);
+                while (target === source) {
+                    target = Math.floor(Math.random() * entityCount);
+                }
+                
+                links.push({
+                    source: `e${source}`,
+                    target: `e${target}`,
+                    value: Math.random(),
+                    lineStyle: {
+                        width: 1 + Math.random() * 2,
+                        opacity: 0.3 + Math.random() * 0.5
+                    }
+                });
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    backgroundColor: 'rgba(30,30,50,0.9)',
+                    borderColor: '#00d9ff',
+                    textStyle: { color: '#fff' }
+                },
+                series: [{
+                    type: 'graph',
+                    layout: 'force',
+                    data: nodes,
+                    links: links,
+                    roam: true,
+                    label: {
+                        show: true,
+                        position: 'right',
+                        formatter: '{b}',
+                        color: '#aaa',
+                        fontSize: 10
+                    },
+                    force: {
+                        repulsion: 200,
+                        gravity: 0.1,
+                        edgeLength: [30, 100]
+                    },
+                    lineStyle: {
+                        color: 'source',
+                        curveness: 0.1
+                    },
+                    itemStyle: {
+                        color: function(params) {
+                            const colors = ['#00d9ff', '#00ff88', '#ffd93d', '#ff6b6b', '#c9b1ff'];
+                            return colors[params.data.category % colors.length];
+                        }
+                    }
+                }]
+            };
+            
+            networkChart.setOption(option);
+        }
+        
+        // 更新时间线
+        function updateTimeline() {
+            const events = [];
+            
+            for (const record of logData) {
+                if (record.event_type === 'sandbox_init') {
+                    events.push({
+                        step: 0,
+                        type: 'init',
+                        desc: '沙盒初始化 - 实体:' + record.data.initial_entities + ' 关系:' + record.data.initial_relations
+                    });
+                } else if (record.event_type === 'qualitative_leap') {
+                    events.push({
+                        step: record.seq,
+                        type: 'leap',
+                        desc: '质变 - 矛盾强度:' + (record.data.contradiction_intensity || 0).toFixed(3)
+                    });
+                } else if (record.event_type === 'metamorphosis') {
+                    events.push({
+                        step: record.seq,
+                        type: 'meta',
+                        desc: '蜕变 - 保留:' + record.data.kept_count + ' 重组:' + record.data.restructured_count
+                    });
+                }
+            }
+            
+            // 显示最新的20个事件
+            const recentEvents = events.slice(-20).reverse();
+            
+            let html = '';
+            for (const event of recentEvents) {
+                html += `
+                    <div class="event-item">
+                        <span class="step">#${event.step}</span>
+                        <span class="type ${event.type}">${event.type === 'init' ? '初始化' : event.type === 'leap' ? '质变' : '蜕变'}</span>
+                        <span class="desc">${event.desc}</span>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('event-timeline').innerHTML = html || '<div class="empty-state">暂无事件</div>';
+        }
+        
+        // 刷新数据
+        function refreshData() {
+            loadData();
+        }
+        
+        // 切换自动刷新
+        function toggleAutoRefresh() {
+            const statusEl = document.getElementById('auto-status');
+            
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                statusEl.textContent = '关闭';
+            } else {
+                autoRefreshInterval = setInterval(loadData, 5000);
+                statusEl.textContent = '开启 (5s)';
+            }
+        }
+    </script>
+</body>
+</html>

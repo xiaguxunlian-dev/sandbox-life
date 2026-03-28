@@ -5,21 +5,74 @@ observer/dashboard.py — 外部只读观测仪表盘
 不提供任何写入接口。
 
 v0.1: 终端文本仪表盘
-v0.5: 将升级为完整图形界面
+v0.5: 升级为完整图形界面（HTML + ECharts）
 """
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
+import socketserver
 import sys
 import time
+import threading
+import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
 
+
+# ── HTTP 服务器 ─────────────────────────────────────────────────
+class DashboardHandler(http.server.SimpleHTTPRequestHandler):
+    """自定义HTTP处理器，支持日志数据API"""
+    
+    def __init__(self, *args, directory=None, **kwargs):
+        self.dashboard_dir = directory
+        super().__init__(*args, directory=directory, **kwargs)
+    
+    def do_GET(self):
+        if self.path == '/api/logs':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 读取日志文件
+            log_path = os.path.join(self.dashboard_dir, '..', 'logs', 'sandbox_v02.jsonl')
+            if os.path.exists(log_path):
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self.wfile.write(content.encode('utf-8'))
+            else:
+                self.wfile.write(b'[]')
+        else:
+            super().do_GET()
+    
+    def log_message(self, format, *args):
+        # 抑制HTTP服务器日志
+        pass
+
+
+def start_http_server(port: int = 8765, directory: str = None):
+    """启动HTTP服务器"""
+    if directory is None:
+        directory = os.path.dirname(os.path.abspath(__file__))
+    
+    os.chdir(directory)
+    
+    with socketserver.TCPServer(("", port), DashboardHandler) as httpd:
+        print(f"[Web] Dashboard: http://localhost:{port}/dashboard_v05.html")
+        print(f"   Press Ctrl+C to stop")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\n[!] Server stopped")
+
+
+# ── 日志读取函数 ─────────────────────────────────────────────────
 
 def read_log(log_path: str, event_type: str | None = None, tail_n: int = 50) -> list[dict]:
     """从透明日志读取记录（只读）"""
@@ -117,9 +170,35 @@ if __name__ == "__main__":
         "--watch", action="store_true",
         help="持续监控模式（每5秒刷新）",
     )
+    parser.add_argument(
+        "--web", action="store_true",
+        help="启动图形仪表盘（Web界面）",
+    )
+    parser.add_argument(
+        "--port", type=int,
+        default=8765,
+        help="Web服务端口",
+    )
+    parser.add_argument(
+        "--open", action="store_true",
+        help="自动打开浏览器",
+    )
     args = parser.parse_args()
-
-    if args.watch:
+    
+    if args.web:
+        # 启动Web图形仪表盘
+        directory = os.path.dirname(os.path.abspath(__file__))
+        if args.open:
+            # 后台启动服务器，然后打开浏览器
+            def delayed_open():
+                time.sleep(1)
+                webbrowser.open(f"http://localhost:{args.port}/dashboard_v05.html")
+            
+            thread = threading.Thread(target=delayed_open, daemon=True)
+            thread.start()
+        
+        start_http_server(port=args.port, directory=directory)
+    elif args.watch:
         while True:
             os.system("cls" if sys.platform == "win32" else "clear")
             print_dashboard(args.log)
