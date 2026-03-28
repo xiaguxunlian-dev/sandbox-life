@@ -105,14 +105,24 @@ class DialecticalEvolution:
 
     # ── 主循环 ────────────────────────────────────────────────
 
-    def step(self, activated_entities: list[str] | None = None) -> EvolutionStep:
+    def step(
+        self, 
+        activated_entities: list[str] | None = None,
+        topology_input: object = None,
+    ) -> EvolutionStep:
         """
         执行一步进化
 
-        activated_entities: 本步被激活的事物ID列表
+        Args:
+            activated_entities: 本步被激活的事物ID列表
+            topology_input: 来自历史书的拓扑变量（可选）
         """
         self._step_count += 1
         fe_before = self.consequence.last_free_energy
+
+        # 0. 如果有历史事件输入，施加拓扑影响
+        if topology_input:
+            self._apply_topology_input(topology_input)
 
         # 1. 量变：更新权重
         self._quantitative_step(activated_entities or [])
@@ -184,6 +194,78 @@ class DialecticalEvolution:
             else:
                 # 未激活的联系自然衰减
                 rel.decay_spontaneous(alpha=0.0001)
+
+    # ── 历史事件输入 ──────────────────────────────────────────
+
+    def _apply_topology_input(self, topology_input) -> None:
+        """
+        应用历史事件带来的拓扑变化
+        
+        将去语义化的事件转换为：
+        - 新节点（实体）
+        - 新边（关系）
+        - 边权重调整
+        """
+        from core.entity import Entity
+        import hashlib
+        
+        new_nodes = topology_input.new_node_count
+        new_edges = topology_input.new_edge_count
+        edge_changes = topology_input.edge_weight_changes
+        structural_impact = topology_input.structural_impact
+        
+        # 创建新实体（如果需要）
+        # 简化版：利用已有实体或创建新实体
+        existing_ids = [e.id for e in self.entities]
+        
+        if existing_ids:
+                # 添加新边
+            for src_id, tgt_id, weight_delta in edge_changes:
+                # 检查节点是否存在
+                if src_id not in existing_ids:
+                    # 创建新实体
+                    new_entity = Entity.create(
+                        feature_vector=np.random.randn(64).astype(np.float32),
+                        label=f"hist_{src_id[:6]}",
+                        uncertainty=0.5,
+                    )
+                    self.entities.append(new_entity)
+                    existing_ids.append(new_entity.id)
+                    src_id = new_entity.id
+                    
+                if tgt_id not in existing_ids:
+                    # 创建新实体
+                    new_entity = Entity.create(
+                        feature_vector=np.random.randn(64).astype(np.float32),
+                        label=f"hist_{tgt_id[:6]}",
+                        uncertainty=0.5,
+                    )
+                    self.entities.append(new_entity)
+                    existing_ids.append(new_entity.id)
+                    tgt_id = new_entity.id
+                
+                # 添加或更新关系（遍历检查）
+                existing = None
+                for rel in self.graph.all_relations():
+                    if rel.source_id == src_id and rel.target_id == tgt_id:
+                        existing = rel
+                        break
+                
+                if existing:
+                    # 贝叶斯更新：正向证据增强
+                    if weight_delta > 0:
+                        existing.bayesian_update(
+                            positive_evidence=True, 
+                            learning_rate=min(structural_impact, 0.5)
+                        )
+                else:
+                    # 新建关系
+                    self.graph.add_relation(
+                        src_id, tgt_id,
+                        w_pos=0.5 + weight_delta * 0.3,
+                        w_neg=0.5 - weight_delta * 0.3,
+                        causal_strength=weight_delta,
+                    )
 
     # ── 自然遗忘 ──────────────────────────────────────────────
 
