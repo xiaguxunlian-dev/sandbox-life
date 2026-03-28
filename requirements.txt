@@ -1,0 +1,10 @@
+networkx>=3.2
+numpy>=1.26
+scipy>=1.11
+rich>=13.7        # 终端可视化
+loguru>=0.7       # 结构化日志
+pydantic>=2.5     # 数据模型验证
+jieba>=0.42       # 中文分词（历史书解析）
+spacy>=3.7        # NLP管道（实体识别）
+matplotlib>=3.8   # 图表
+pytest>=7.4       # 测试
